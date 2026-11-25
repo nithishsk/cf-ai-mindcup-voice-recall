@@ -2,6 +2,8 @@
 
 A voice-based active recall app that transcribes your spoken revision, compares it against your study notes, and highlights what you got right, wrong, or missed.
 
+**Live Preview:** https://mindcup-audio-demo.nithishsharavanan.com/
+
 ## Features
 
 - **Voice & Note Input:** Paste your study notes and record a voice explanation.
@@ -14,7 +16,7 @@ A voice-based active recall app that transcribes your spoken revision, compares 
 ## Architecture
 
 ```text
-Browser (Vue + MediaRecorder) → Worker (Hono + RateLimiterObject) → RevisionCheckWorkflow [Whisper → Llama 3.3 → Zod/Quote Validator] → SessionObject (SQLite)
+Browser (Vue + MediaRecorder) → Worker (Hono + RateLimiterObject) → RevisionCheckWorkflow [Whisper → Gemma 4 → Zod/Quote Validator] → SessionObject (SQLite)
 ```
 
 - **24 kbps Opus audio:** Keeps voice recordings compact and well under the 1 MiB Workflow payload limit.
@@ -24,8 +26,8 @@ Browser (Vue + MediaRecorder) → Worker (Hono + RateLimiterObject) → Revision
 ## Tech Stack
 
 - **Backend:** TypeScript, Hono, Cloudflare Workers, Cloudflare Workflows, Durable Objects (SQLite), Workers Static Assets
-- **AI:** Cloudflare Workers AI (Whisper Large v3 Turbo + Llama 3.3 70B)
-- **Frontend:** HTML, Vue.js
+- **AI:** Cloudflare Workers AI (Whisper Large v3 Turbo + Gemma 4 26B)
+- **Frontend:** HTML, Vue.js, Tailwind CSS
 - **Validation:** Zod
 
 ## Getting Started
