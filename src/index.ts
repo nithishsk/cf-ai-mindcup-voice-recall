@@ -1,64 +1,151 @@
-import { DurableObject } from "cloudflare:workers";
+import { Hono } from 'hono';
+import { RateLimiterObject } from './do/rate-limiter-do';
+import { RecallSessionObject } from './do/recall-session-do';
+import { getRateLimiterStub, getSessionStub } from './do/stubs';
+import type { Env } from './types';
+import { RevisionCheckWorkflow } from './workflow';
 
-/**
- * Welcome to Cloudflare Workers! This is your first Durable Objects application.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your Durable Object in action
- * - Run `npm run deploy` to publish your application
- *
- * Bind resources to your worker in `wrangler.jsonc`. After adding bindings, a type definition for the
- * `Env` object can be regenerated with `npm run cf-typegen`.
- *
- * Learn more at https://developers.cloudflare.com/durable-objects
- */
+export { RateLimiterObject, RecallSessionObject, RevisionCheckWorkflow };
 
-/** A Durable Object's behavior is defined in an exported Javascript class */
-export class MyDurableObject extends DurableObject<Env> {
-	/**
-	 * The constructor is invoked once upon creation of the Durable Object, i.e. the first call to
-	 * 	`DurableObjectStub::get` for a given identifier (no-op constructors can be omitted)
-	 *
-	 * @param ctx - The interface for interacting with Durable Object state
-	 * @param env - The interface to reference bindings declared in wrangler.jsonc
-	 */
-	constructor(ctx: DurableObjectState, env: Env) {
-		super(ctx, env);
-	}
+const app = new Hono<{ Bindings: Env }>();
 
-	/**
-	 * The Durable Object exposes an RPC method sayHello which will be invoked when a Durable
-	 *  Object instance receives a request from a Worker via the same method invocation on the stub
-	 *
-	 * @param name - The name provided to a Durable Object instance from a Worker
-	 * @returns The greeting to be sent back to the Worker
-	 */
-	async sayHello(name: string): Promise<string> {
-		return `Hello, ${name}!`;
-	}
+function getClientIp(c: { req: { header: (name: string) => string | undefined } }): string {
+	return c.req.header('CF-Connecting-IP') ?? c.req.header('X-Forwarded-For')?.split(',')[0]?.trim() ?? '127.0.0.1';
 }
 
-export default {
-	/**
-	 * This is the standard fetch handler for a Cloudflare Worker
-	 *
-	 * @param request - The request submitted to the Worker from the client
-	 * @param env - The interface to reference bindings declared in wrangler.jsonc
-	 * @param ctx - The execution context of the Worker
-	 * @returns The response to be sent back to the client
-	 */
-	async fetch(request, env, ctx): Promise<Response> {
-		// Create a stub to open a communication channel with the Durable Object
-		// instance named "foo".
-		//
-		// Requests from all Workers to the Durable Object instance named "foo"
-		// will go to a single remote Durable Object instance.
-		const stub = env.MY_DURABLE_OBJECT.getByName("foo");
+function getSessionId(c: { req: { header: (name: string) => string | undefined } }): string | null {
+	const sessionId = c.req.header('X-Session-Id')?.trim();
+	return sessionId && sessionId.length > 0 ? sessionId : null;
+}
 
-		// Call the `sayHello()` RPC method on the stub to invoke the method on
-		// the remote Durable Object instance.
-		const greeting = await stub.sayHello("world");
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+	const bytes = new Uint8Array(buffer);
+	let binary = '';
+	const chunkSize = 0x8000;
+	for (let i = 0; i < bytes.length; i += chunkSize) {
+		binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+	}
+	return btoa(binary);
+}
 
-		return new Response(greeting);
-	},
-} satisfies ExportedHandler<Env>;
+app.use('/api/*', async (c, next) => {
+	const clientIp = getClientIp(c);
+	const rateLimit = await getRateLimiterStub(c.env, clientIp).checkLimit();
+
+	c.header('X-RateLimit-Remaining', String(rateLimit.remaining));
+	c.header('X-RateLimit-Reset', String(rateLimit.resetAt));
+
+	if (!rateLimit.allowed) {
+		const retryAfterSeconds = Math.max(1, Math.ceil((rateLimit.resetAt - Date.now()) / 1000));
+		c.header('Retry-After', String(retryAfterSeconds));
+		return c.json({ error: 'Rate limit exceeded. Please try again later.' }, 429);
+	}
+
+	await next();
+});
+
+app.post('/api/review', async (c) => {
+	const sessionId = getSessionId(c);
+	if (!sessionId) {
+		return c.json({ error: 'Missing X-Session-Id header' }, 400);
+	}
+
+	const contentType = c.req.header('Content-Type') ?? '';
+	let noteContent = '';
+	let noteId: string | undefined;
+	let audioBase64 = '';
+
+	if (contentType.includes('multipart/form-data')) {
+		const formData = await c.req.formData();
+		const rawContent = formData.get('noteContent');
+		const rawNoteId = formData.get('noteId');
+		const audioFile = formData.get('audio');
+
+		noteContent = typeof rawContent === 'string' ? rawContent.trim() : '';
+		noteId = typeof rawNoteId === 'string' && rawNoteId.trim().length > 0 ? rawNoteId.trim() : undefined;
+
+		if (audioFile instanceof File) {
+			if (audioFile.size > 1_000_000) {
+				return c.json({ error: 'Audio file exceeds 1 MB limit' }, 413);
+			}
+			audioBase64 = arrayBufferToBase64(await audioFile.arrayBuffer());
+		}
+	} else {
+		const body = await c.req.json<{ noteContent?: string; noteId?: string; audioBase64?: string }>().catch(() => null);
+		if (body) {
+			noteContent = typeof body.noteContent === 'string' ? body.noteContent.trim() : '';
+			noteId = typeof body.noteId === 'string' && body.noteId.trim().length > 0 ? body.noteId.trim() : undefined;
+			audioBase64 = typeof body.audioBase64 === 'string' ? body.audioBase64.trim() : '';
+		}
+	}
+
+	if (!noteContent || !audioBase64) {
+		return c.json({ error: 'noteContent and audio are required' }, 400);
+	}
+
+	const sessionStub = getSessionStub(c.env, sessionId);
+	const note = await sessionStub.upsertNote(noteContent, noteId);
+	const review = await sessionStub.createReview(note.noteId, note.content);
+
+	await c.env.REVISION_WORKFLOW.create({
+		id: review.reviewId,
+		params: {
+			sessionId,
+			noteId: note.noteId,
+			reviewId: review.reviewId,
+			noteSnapshot: note.content,
+			audioBase64,
+		},
+	});
+
+	return c.json(
+		{
+			reviewId: review.reviewId,
+			noteId: note.noteId,
+			status: review.status,
+		},
+		202,
+	);
+});
+
+app.get('/api/reviews', async (c) => {
+	const sessionId = getSessionId(c);
+	if (!sessionId) {
+		return c.json({ error: 'Missing X-Session-Id header' }, 400);
+	}
+
+	const noteId = c.req.query('noteId')?.trim() || undefined;
+	const reviews = await getSessionStub(c.env, sessionId).listReviews(noteId);
+
+	return c.json({ reviews }, 200);
+});
+
+app.get('/api/review/:reviewId', async (c) => {
+	const sessionId = getSessionId(c);
+	if (!sessionId) {
+		return c.json({ error: 'Missing X-Session-Id header' }, 400);
+	}
+
+	const reviewId = c.req.param('reviewId');
+	const review = await getSessionStub(c.env, sessionId).getReview(reviewId);
+
+	if (!review) {
+		return c.json({ error: 'Review not found' }, 404);
+	}
+
+	return c.json({ review }, 200);
+});
+
+app.get('/api/session', async (c) => {
+	const sessionId = getSessionId(c);
+	if (!sessionId) {
+		return c.json({ error: 'Missing X-Session-Id header' }, 400);
+	}
+
+	const data = await getSessionStub(c.env, sessionId).getSessionData();
+	return c.json({ sessionId, ...data }, 200);
+});
+
+app.all('*', (c) => c.env.ASSETS.fetch(c.req.raw));
+
+export default app;

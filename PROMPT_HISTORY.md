@@ -13,3 +13,6 @@ Note: Done in several steps with corrections on the way
 ## 3. Prompted with flow, steps, models, params, fallbacks, validation rules, error handling and steps.
 Action: Implemented the workflow, prompt variables and validation rules.
 Note: I've update the prompts.
+
+## 4. Prompted with endpoints needed, with validation, rate limit needed, ways to handle session id and client ip headers, status codes and route specific handling needed.
+Action: implemented index.ts as needed
