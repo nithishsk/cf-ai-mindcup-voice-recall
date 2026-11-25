@@ -6,11 +6,17 @@
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "start": "wrangler dev",
+    "test": "vitest run",
     "cf-typegen": "wrangler types"
   },
   "devDependencies": {
     "@types/node": "^26.6.10",
     "typescript": "^5.5.2",
+    "vitest": "^4.1.12",
     "wrangler": "^4.168.0"
+  },
+  "dependencies": {
+    "hono": "^4.13.22",
+    "zod": "^4.6.7"
   }
 }
