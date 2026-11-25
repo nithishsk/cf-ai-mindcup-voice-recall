@@ -16,3 +16,9 @@ Note: I've update the prompts.
 
 ## 4. Prompted with endpoints needed, with validation, rate limit needed, ways to handle session id and client ip headers, status codes and route specific handling needed.
 Action: implemented index.ts as needed
+
+# Building Frontend
+
+## 5. Prompted with the needed frontend components, their structure, dependencies, how they should interact with backend, validations with sample files.
+Action:Implemented /public/index.html, and src/app.js.
+Note: I updated the polling interval and rate limits to reduce api calls and backend load.

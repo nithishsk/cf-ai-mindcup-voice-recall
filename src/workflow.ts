@@ -34,16 +34,31 @@ const RECALL_JSON_SCHEMA = {
 	additionalProperties: false,
 };
 
+function extractJsonText(raw: string): string {
+	const trimmed = raw.trim();
+	const fenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+	return fenceMatch ? fenceMatch[1].trim() : trimmed;
+}
+
 function parseModelJson(response: unknown): unknown {
-	if (typeof response === 'object' && response !== null && 'response' in response) {
-		const inner = (response as { response: unknown }).response;
-		if (typeof inner === 'string') {
-			return JSON.parse(inner);
+	if (typeof response === 'object' && response !== null) {
+		if ('choices' in response && Array.isArray((response as { choices: unknown[] }).choices)) {
+			const first = (response as { choices: Array<{ message?: { content?: unknown } }> }).choices[0];
+			const content = first?.message?.content;
+			if (typeof content === 'string') {
+				return JSON.parse(extractJsonText(content));
+			}
 		}
-		return inner;
+		if ('response' in response) {
+			const inner = (response as { response: unknown }).response;
+			if (typeof inner === 'string') {
+				return JSON.parse(extractJsonText(inner));
+			}
+			return inner;
+		}
 	}
 	if (typeof response === 'string') {
-		return JSON.parse(response);
+		return JSON.parse(extractJsonText(response));
 	}
 	return response;
 }

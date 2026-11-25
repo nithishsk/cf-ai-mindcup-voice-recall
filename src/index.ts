@@ -30,7 +30,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 
 app.use('/api/*', async (c, next) => {
 	const clientIp = getClientIp(c);
-	const rateLimit = await getRateLimiterStub(c.env, clientIp).checkLimit();
+	const rateLimit = await getRateLimiterStub(c.env, clientIp).checkLimit(60, 60_000);
 
 	c.header('X-RateLimit-Remaining', String(rateLimit.remaining));
 	c.header('X-RateLimit-Reset', String(rateLimit.resetAt));
@@ -81,6 +81,15 @@ app.post('/api/review', async (c) => {
 
 	if (!noteContent || !audioBase64) {
 		return c.json({ error: 'noteContent and audio are required' }, 400);
+	}
+
+	if (noteContent.length > 1000) {
+		return c.json({ error: 'Note content exceeds 1000 character limit' }, 400);
+	}
+
+	const approxAudioBytes = Math.ceil((audioBase64.length * 3) / 4);
+	if (approxAudioBytes > 1_000_000) {
+		return c.json({ error: 'Audio file exceeds 1 MB limit' }, 413);
 	}
 
 	const sessionStub = getSessionStub(c.env, sessionId);
