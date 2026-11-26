@@ -47,4 +47,5 @@ export interface Env {
 	REVISION_WORKFLOW: Workflow;
 	AI: Ai;
 	ASSETS: Fetcher;
+	mindcup_audio_debug_storage?: R2Bucket;
 }

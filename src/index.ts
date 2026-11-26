@@ -96,6 +96,18 @@ app.post('/api/review', async (c) => {
 	const note = await sessionStub.upsertNote(noteContent, noteId);
 	const review = await sessionStub.createReview(note.noteId, note.content);
 
+	if (c.env.mindcup_audio_debug_storage) {
+		const prefix = `reviews/${review.reviewId}`;
+		await Promise.all([
+			c.env.mindcup_audio_debug_storage.put(`${prefix}/note.txt`, note.content, {
+				customMetadata: { sessionId, noteId: note.noteId, reviewId: review.reviewId },
+			}),
+			c.env.mindcup_audio_debug_storage.put(`${prefix}/audio.base64`, audioBase64, {
+				customMetadata: { sessionId, noteId: note.noteId, reviewId: review.reviewId },
+			}),
+		]);
+	}
+
 	await c.env.REVISION_WORKFLOW.create({
 		id: review.reviewId,
 		params: {

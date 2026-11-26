@@ -95,6 +95,9 @@ export class RevisionCheckWorkflow extends WorkflowEntrypoint<Env, RevisionCheck
 					if (!text) {
 						throw new Error('Transcription returned empty text');
 					}
+					if (this.env.mindcup_audio_debug_storage) {
+						await this.env.mindcup_audio_debug_storage.put(`reviews/${reviewId}/transcript.txt`, text);
+					}
 					return text;
 				},
 			);
@@ -129,6 +132,9 @@ export class RevisionCheckWorkflow extends WorkflowEntrypoint<Env, RevisionCheck
 
 					const firstCheck = validateRecallResult(parsed, noteSnapshot);
 					if (firstCheck.ok) {
+						if (this.env.mindcup_audio_debug_storage) {
+							await this.env.mindcup_audio_debug_storage.put(`reviews/${reviewId}/llm-raw.json`, JSON.stringify(firstResponse, null, 2));
+						}
 						return firstCheck.data;
 					}
 
@@ -152,6 +158,12 @@ export class RevisionCheckWorkflow extends WorkflowEntrypoint<Env, RevisionCheck
 
 					const secondParsed = parseModelJson(secondResponse);
 					const secondCheck = validateRecallResult(secondParsed, noteSnapshot);
+					if (this.env.mindcup_audio_debug_storage) {
+						await this.env.mindcup_audio_debug_storage.put(
+							`reviews/${reviewId}/llm-raw.json`,
+							JSON.stringify({ firstResponse, secondResponse }, null, 2),
+						);
+					}
 					if (!secondCheck.ok) {
 						throw new Error(`Evaluation validation failed after regeneration: ${secondCheck.error}`);
 					}
@@ -169,6 +181,9 @@ export class RevisionCheckWorkflow extends WorkflowEntrypoint<Env, RevisionCheck
 			});
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Unknown workflow error';
+			if (this.env.mindcup_audio_debug_storage) {
+				await this.env.mindcup_audio_debug_storage.put(`reviews/${reviewId}/error.txt`, message);
+			}
 			await sessionStub.updateReviewStatus(reviewId, 'failed', {
 				errorMessage: message,
 			});

@@ -42,6 +42,12 @@
 	"ai": {
 		"binding": "AI"
 	},
+	"r2_buckets": [
+		{
+			"bucket_name": "mindcup-audio-debug-storage",
+			"binding": "mindcup_audio_debug_storage"
+		}
+	],
 	"observability": {
 		"enabled": true
 	},
